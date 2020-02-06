@@ -1,0 +1,209 @@
+---
+title: "Assignment1.2"
+author: "15aeg1"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+References:
+The House data was downloaded from [kaggle] https://www.kaggle.com/c/house-prices-advanced-regression-techniques.
+
+---
+## Total points: 100
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+```{r}
+library(Hmisc)
+library(GGally)
+library(dplyr)
+library(corrgram)
+library(corrr)
+library(e1071)  
+```
+
+
+## Part 1:Feature Analysis
+
+### Perform the following five tasks and answer the corresponding questions (60 points)
+Step1. Load data from the given csv file. Randomly split the dataset into training and testing, training takes 80%.
+```{r}
+data = read.csv("housePriceData.csv")
+sample_size = floor(0.8*nrow(data))
+set.seed(222)
+sample = sample(seq_len(nrow(data)), size = sample_size)
+training = data[sample,]
+testing = data[-sample,]
+```
+
+Step2. Handle missing values. Note that you should first investigate if NA represents 0 or missing value.
+
+NA represents 0:  e.g, PoolQC, 0 means no pool, we should drop the featurebecauese it is a feature with low variance. 
+
+Missing value: e.g., GarageYrBlt, you can replace NA with median GarageYrBlt.
+
+If larger than 90% values are missing, e.g., PoolQC, consider dropping it because even 0 means something, the variance in this feature is too low to make any strong conclusion.
+
+Ref. https://towardsdatascience.com/how-to-handle-missing-data-8646b18db0d4
+
+
+```{r}
+filtered = select(training, -c("PoolQC", "Fence", "MiscFeature"))
+MedianGarageYrBlt = median(filtered$GarageYrBlt, na.rm = TRUE)
+filtered = mutate(filtered, GarageYrBlt = ifelse(is.na(GarageYrBlt),MedianGarageYrBlt,GarageYrBlt)) 
+head(filtered)
+```
+[Question] Please provide a short summary of how you deal with missing values based on the above analysis.
+
+Your Answer: When looking at the data it was clear that there were three columns that should be dropped because of their low variance: PoolQC, Fence and MiscFeature. It was a tough choice whether to drop fence since there were quite a few entried but the article said that anything that is less than 60% populated can be dropped. The MiscFeature column was essential shed or no shed and most of the time there was no shed so I dropped it too.
+
+For the GarageYrBlt column I used your advice and took the median of the column excluding the missing entries and used that value for the missing entries.
+
+Step3. Check the correlation between numerical features and the target SalePrice. Rank features based on correlation score and select top 10 numerical feature. 
+```{r}
+pairs = cor(filtered[,sapply(filtered,is.numeric)])
+sort(pairs[,38])
+```
+
+
+
+[Question] What are the selected 10 numerical features?
+
+Your Answer: 
+1. OverallQual
+2. GrLivArea
+3. GarageCars
+4. GarageArea
+5. TotalBsmtSF
+6. X1stFlrSF
+7. FullBath
+8. YearBuilt
+9. TotRmsAbvGrd
+10. YearRemodAdd
+
+Step4. Analyze categorial features in a similar way (correlation analysis + missing value analysis). Select 5 selected categorial features you believe can contribute to house price prediction. 
+
+```{r}
+threshold = median(filtered$SalePrice)
+filtered = mutate(filtered, PriceCat = ifelse(filtered$SalePrice>threshold,TRUE,FALSE)) 
+table(filtered$Neighborhood, filtered$PriceCat)
+chisq.test(filtered$Neighborhood, filtered$PriceCat)
+
+table(filtered$HouseStyle, filtered$PriceCat)
+chisq.test(filtered$HouseStyle, filtered$PriceCat)
+
+table(filtered$MSZoning, filtered$PriceCat)
+chisq.test(filtered$MSZoning, filtered$PriceCat)
+
+table(filtered$LotShape, filtered$PriceCat)
+chisq.test(filtered$LotShape, filtered$PriceCat)
+
+table(filtered$Exterior1st, filtered$PriceCat)
+chisq.test(filtered$Exterior1st, filtered$PriceCat)
+
+table(filtered$MasVnrType, filtered$PriceCat)
+chisq.test(filtered$MasVnrType, filtered$PriceCat)
+
+table(filtered$ExterQual, filtered$PriceCat)
+chisq.test(filtered$ExterQual, filtered$PriceCat)
+
+table(filtered$Foundation, filtered$PriceCat)
+chisq.test(filtered$Foundation, filtered$PriceCat)
+
+table(filtered$BsmtQual, filtered$PriceCat)
+chisq.test(filtered$BsmtQual, filtered$PriceCat)
+
+table(filtered$BsmtFinType1, filtered$PriceCat)
+chisq.test(filtered$BsmtFinType1, filtered$PriceCat)
+
+table(filtered$HeatingQC, filtered$PriceCat)
+chisq.test(filtered$HeatingQC, filtered$PriceCat)
+
+table(filtered$KitchenQual, filtered$PriceCat)
+chisq.test(filtered$KitchenQual, filtered$PriceCat)
+
+table(filtered$FireplaceQu, filtered$PriceCat)
+chisq.test(filtered$FireplaceQu, filtered$PriceCat)
+
+table(filtered$GarageType, filtered$PriceCat)
+chisq.test(filtered$GarageType, filtered$PriceCat)
+
+table(filtered$GarageFinish, filtered$PriceCat)
+chisq.test(filtered$GarageFinish, filtered$PriceCat)
+
+HighOnly = filter(filtered, PriceCat==TRUE)
+```
+[Question] What are the selected 5 categorial features?
+
+Your Answer: To select 5 categorical features I discretized the price data into high and low prices by splitting it at the median. To correlate a feature to the high or low value I created tables that represented the number of feature values in each category. This was a great way for me to digest which entries were highly correlted and which weren't. To quantify this I used a chi-squared test which was an easy way to assign a numerical value to the correlation so that I could rank them. Since a lot of variables scored low I removed them to reduce clutter. The top 5 were:
+Neighborhood
+ExterQual
+BsmtQual
+KitchenQual
+GarageFinish
+
+Step5. Perform skewness analysis for the 15 selected features. Apply transformation if needed.
+
+```{r}
+selected = select(filtered, c("Neighborhood", "ExterQual", "BsmtQual", "KitchenQual", "GarageFinish", "OverallQual", "GrLivArea", "GarageCars", "GarageArea", "TotalBsmtSF", "X1stFlrSF", "FullBath", "YearBuilt", "TotRmsAbvGrd", "YearRemodAdd", "SalePrice"))
+selected = mutate(selected, NumericGarageFinish = as.integer(ifelse(selected$GarageFinish=="Unf", 1, ifelse(selected$GarageFinish=="RFn", 2, ifelse(selected$GarageFinish=="Fin", 3, "Houston We Have a Problem")))))
+selected = na.omit(selected)
+
+sprintf("The skewness for OverallQual is: %s", skewness(selected$OverallQual))
+sprintf("The skewness for GrLivArea is: %s", skewness(selected$GrLivArea))
+sprintf("The skewness for GarageCars is: %s", skewness(selected$GarageCars))
+sprintf("The skewness for GarageArea is: %s", skewness(selected$GarageArea))
+sprintf("The skewness for TotalBsmtSF is: %s", skewness(selected$TotalBsmtSF))
+sprintf("The skewness for X1stFlrSF is: %s", skewness(selected$X1stFlrSF))
+sprintf("The skewness for FullBath is: %s", skewness(selected$FullBath))
+sprintf("The skewness for YearBuilt is: %s", skewness(selected$YearBuilt))
+sprintf("The skewness for TotRmsAbvGrd is: %s", skewness(selected$TotRmsAbvGrd))
+sprintf("The skewness for YearRemodAdd is: %s", skewness(selected$YearRemodAdd))
+sprintf("The skewness for NumericGarageFinish is: %s", skewness(selected$NumericGarageFinish))
+
+```
+[Question] Please provide a short summary of how you performed skewness analysis.
+
+Your Answer: Skewness analysis for the numerical data was very easy. I found a library online to create the distrabution and provide a measure of skewness. Values within -0.5 and 0.5 are fairly normally distributed whereas values with an absolute value greater than one are highly skewed.
+
+To provide something for the categorical data my plan was to transfrom the data to use values instead of a categroical assignment. This was tricky because I needed to create some kind of rank within the categories. Since this would be incredibly time consuming to do with all of the categories I just to just do it with one: GarageFinish. GarageFinish can be Unf, Rfn and Fin. I assigned these values from 1-3 and was able to generate a skewness.
+
+
+
+
+
+## Part 2: Model Selection and Model Comparasion
+### Perform the following three tasks and answer the corresponding questions (40 points)
+
+Step1. Build a linear regression model with 15 selected features. If multicollinearity exists, you should decide how to deal with it. You should also perform feature transformation if necessary.
+```{r}
+ggpairs(selected, columns = c("GarageCars", "GrLivArea", "GarageArea", "GarageFinish"))
+model = lm(SalePrice ~ Neighborhood + ExterQual + BsmtQual + KitchenQual + GarageFinish + OverallQual + GrLivArea + GarageArea + TotalBsmtSF + X1stFlrSF + FullBath + YearBuilt + TotRmsAbvGrd + YearRemodAdd, selected)
+summary(model)
+```
+[Question]Please provide a short summary of your findings from the above analysis.
+
+Your Answer: To test for multicolliniarity I used the ggpairs funtion and passed in different combonations of variabled to identify a correlation. The strongest multicollinarity I found was between garage area and garage cars. To deal with this I removed garage cars from the model. The regression was able to acheive an .82 R-squared value which seems high for a first attempt. My hypothesis as of now is that model is overfit due to the large number of coefficients.
+ 
+
+Step2. Select the best subset from the 15 selected features. You can choose any of the feature selection methods mentioned in class. 
+```{r}
+
+```
+[Question]Please provide a short summary of your findings from the above analysis.
+
+Your Answer: 
+
+Step3. Test the above two models, together with two regularatizion methods on the testing set. Report the RMSE values for four models. 
+
+Reference: ISLR Chapter6.6 Lab 2.
+```{r}
+
+```
+[Question]Please provide a short summary of your findings from the above analysis.
+
+Your Answer: 

@@ -1,0 +1,258 @@
+---
+title: "Assignment1.2"
+author: "20001247"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+References:
+The House data was downloaded from [kaggle] https://www.kaggle.com/c/house-prices-advanced-regression-techniques.
+
+---
+## Total points: 100
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+```{r}
+library(GGally)
+library(tidyr)
+library(Hmisc)
+library(dplyr)
+library(base)
+# install.packages("tidyverse")
+library(tidyverse)
+# install.packages("imputeTS")
+library(zoo)
+# install.packages("data.table")
+# install.packages("mltools")
+library(data.table)
+library(mltools)
+library(imputeTS)
+# install.packages("e1071")
+# install.packages("glmnet")
+library(glmnet) # you need glmnet library
+library(e1071)
+
+
+```
+
+
+## Part 1:Feature Analysis
+
+### Perform the following five tasks and answer the corresponding questions (60 points)
+Step1. Load data from the given csv file. Randomly split the dataset into training and testing, training takes 80%.
+```{r}
+maind = read.csv("housePriceData.csv")
+# maind
+
+smp_size <- floor(0.80 * nrow(maind))
+
+set.seed(123)
+train_ind <- sample(seq_len(nrow(maind)), size = smp_size)
+
+train <- maind[train_ind, ]
+test <- maind[-train_ind, ]
+# train
+# test
+```
+
+Step2. Handle missing values. Note that you should first investigate if NA represents 0 or missing value.
+
+NA represents 0:  e.g, PoolQC, 0 means no pool, we should drop the featurebecauese it is a feature with low variance. 
+
+Missing value: e.g., GarageYrBlt, you can replace NA with median GarageYrBlt.
+
+If larger than 90% values are missing, e.g., PoolQC, consider dropping it because even 0 means something, the variance in this feature is too low to make any strong conclusion.
+
+Ref. https://towardsdatascience.com/how-to-handle-missing-data-8646b18db0d4
+
+
+```{r}
+
+# usedNA <- maind %>% select(BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, FireplaceQu, GarageType, GarageFinish, GarageQual, GarageCond, PoolQC, Fence, MiscFeature)
+# 
+# noUse <- maind %>% select(-BsmtQual, -BsmtCond, -BsmtExposure, -BsmtFinType1, -BsmtFinType2, -FireplaceQu, -GarageType, -GarageFinish, -GarageQual, -GarageCond, -PoolQC, -Fence, -MiscFeature)
+# 
+
+nums <- select_if(maind, is.numeric)
+nonNums <- maind %>% select_if(negate(is.numeric))
+toDrop <- c("PoolQC")
+nonNums[ , !(names(nonNums) %in% toDrop)]
+NA2mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+nums[] <- lapply(nums, NA2mean)
+
+# fixed<-merge(nonNums,nums, by="Id",all =TRUE)
+
+# charr <- housePriceData %>% select_if(Negate(is.integer))
+fixed <- cbind(nums, nonNums)
+
+
+# noUse <- na.replace(noUse, 0)
+
+```
+[Question] Please provide a short summary of how you deal with missing values based on the above analysis.
+
+Your Answer:
+
+First we find attributes where NA represents a value instead of one thats missing. This is most easily done by going to the website and downloading the txt file describing the data. This file outlines wether NA represents an actual data point or a missing value for each attribute. 
+
+Attributes where NA represents no "x":
+Alley, BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, FireplaceQu, GarageType, GarageFinish, GarageQual, GarageCond, PoolQC, Fence, MiscFeature
+
+Any attribute not in this list where the value is NA indicates a missing value. 
+
+--> It was recognized that all non numeric columns with NA actually used NA where as numeric columns used NA to represent a missing value. The strategy then became to split the data into numeric and non numeric, to transform the NA values in the numeric columns into the average of the column (as our chosen imputation solution), then to merge the values again. 
+
+Step3. Check the correlation between numerical features and the target SalePrice. Rank features based on correlation score and select top 10 numerical feature. 
+```{r}
+#First remove the ID column from the data frame because we dont want to consider it in the correlation
+nums <- nums[ , !names(nums) %in% c("Id")]
+
+
+#this line finds the correlation betwen all values and the sales price
+correlations <- cor(nums$SalePrice, nums[,1:36])
+
+#this section sorts the highest correlation values and prints them
+sortedCorrs <- order(abs(correlations))
+sortedCorrs
+topCorrs <- correlations[,c(7 , 6, 23, 19, 13, 12, 27, 26, 16,  4)]
+topCorrs
+
+
+```
+[Question] What are the selected 10 numerical features?
+
+Your Answer: 
+
+YearRemodAdd    YearBuilt TotRmsAbvGrd     FullBath    X1stFlrSF  TotalBsmtSF   GarageArea   GarageCars 
+   0.5071010    0.5228973    0.5337232    0.5606638    0.6058522    0.6135806    0.6234314    0.6404092 
+   GrLivArea  OverallQual 
+   0.7086245    0.7909816 
+
+Step4. Analyze categorial features in a similar way (correlation analysis + missing value analysis). Select 5 selected categorial features you believe can contribute to house price prediction. 
+
+```{r}
+
+nonAndSale <- cbind(nums$SalePrice, nonNums)
+colnames(nonAndSale)[1] <- "SalePrice"
+
+nonNumsEncode <- nums$SalePrice
+x = 1
+for(i in names(nonNums)){
+  x = x+1
+  nonNumsEncode <- cbind(nonNumsEncode,as.numeric(nonNums[[i]]))
+  colnames(nonNumsEncode)[x] <- i
+}
+
+nonNumCorrs <- cor(nums$SalePrice, nonNumsEncode[,2:41])
+colnames(nonNumsEncode)[1] <- "SalePrice"
+sortedCorrsNon <- order(abs(nonNumCorrs))
+sortedCorrsNon
+topCorrsNon <- nonNumCorrs[,c( 3, 18, 25, 28, 16)]
+topCorrsNon
+
+```
+
+[Question] What are the selected 5 categorial features?
+
+Your Answer: 
+
+For this section I encoded all of the categories in the non numeric table then ran a correlation between these values and the sale price. 
+
+LotShape  Foundation   HeatingQC KitchenQual   ExterQual 
+ -0.2555799   0.3824790  -0.4001775  -0.5891888  -0.6368837 
+
+Step5. Perform skewness analysis for the 15 selected features. Apply transformation if needed.
+
+```{r}
+#join the top 10 numeric and top 5 encoded categorical values
+sigFeats <- cbind(nums[,c(7 , 6, 23, 19, 13, 12, 27, 26, 16,  4)], nonNumsEncode[,c(3, 18, 25, 28, 16)])
+sigFeats <- cbind(sigFeats, nums$SalePrice)
+colnames(sigFeats)[16] <- "SalePrice"
+
+#print the skewness values for each
+for(i in names(sigFeats)){
+   temp = sigFeats[[i]]
+   print(i)
+   print(skewness(temp))
+}
+
+smp_size <- floor(0.80 * nrow(sigFeats))
+
+set.seed(123)
+train_ind <- sample(seq_len(nrow(sigFeats)), size = smp_size)
+
+SFtrain <- sigFeats[train_ind, ]
+SFtest<- sigFeats[-train_ind, ]
+
+```
+[Question] Please provide a short summary of how you perform skewness analysis.
+
+Your Answer: 
+
+To get the skewness values, i created a list of all the significant values from the numeric table and encoded categorical table. Then i wrote a loop to print the skewness of each column. 
+
+
+## Part 2: Model Selection and Model Comparasion
+### Perform the following three tasks and answer the corresponding questions (40 points)
+
+Step1. Build a linear regression model with 15 selected features. If multicollinearity exists, you should decide how to deal with it. You should also perform feature transformation if necessary.
+```{r}
+# uncomment the line below to see the correlation scatter plots, I left it commented because it's heavy
+# ggpairs(sigFeats)
+y = NULL
+y = SFtrain[[1]] + SFtrain[[2]] + SFtrain[[3]] + SFtrain[[4]] + SFtrain[[5]] + SFtrain[[6]] + SFtrain[[7]] + SFtrain[[8]] + SFtrain[[9]] + SFtrain[[10]] + SFtrain[[11]] + SFtrain[[12]] + SFtrain[[13]] + SFtrain[[14]] + SFtrain[[5]] 
+
+model = lm(SFtrain[[16]] ~ y)
+summary(model)
+
+pricePred <- predict(model, SFtest) #linearMod is the model you learned, test is the testing data you splitted
+actuals_preds <- data.frame(cbind(actuals=test$SalePrice, predicteds=pricePred)) #create a new table for comparing predicted results and ground truth.
+actual <- actuals_preds[[1]]
+predictions <- actuals_preds[[2]]
+RMSE_error<-sqrt(mean(actual-predictions)**2) #this gives you the rmse error on your testing set. 
+RMSE_error
+
+```
+[Question]Please provide a short summary of your findings from the above analysis.
+
+Your Answer: 
+To test for multicoliearity, the ggpairs function was run on the complete significant features data frame. Looking at the scatter plots of the data, there did not appear to be any obvious correlations and so no adjustments to the dataframe were made. The results of the linear model can be seen above, where the R-Squared error was 0.5854. This is reasonable because encoded values were being used for categorical data. More robust ways of combining categorical and numerical data could be investigated. 
+
+The code from OnQ was used to make predictions on the testing dataset. Results were obtained and can be seen in the actuals_preds data frame. Different attempts were made to get the RMSE value to display but I was unsuccessful.
+
+Step2. Select the best subset from the 15 selected features. You can choose any of the feature selection methods mentioned in class. 
+```{r}
+
+
+# use model.matrix  to get transformed features for your model, "-1" remove the intercept column
+x <- model.matrix(SalePrice~ as.factor(Neighborhood)+as.factor(KitchenQual) + GrLivArea + OverallQual-1, data=train)
+
+x_test <- model.matrix(SalePrice~ as.factor(Neighborhood)+as.factor(KitchenQual) + GrLivArea + OverallQual-1, data=test)
+
+lasso_mod<- cv.glmnet(x, SFtrain$SalePrice, alpha = 1) # lasso when alpha = 1, ridge when alpha = 0
+
+ridge_pred = predict(lasso_mod , newx = x_test) # ridge_pred is the prediction for your ridge model
+
+
+```
+[Question]Please provide a short summary of your findings from the above analysis.
+
+Your Answer: 
+
+I ran the code supplied on onQ and edited it to use the significant factors training table created earlier. 
+
+Step3. Test the above two models, together with two regularatizion methods on the testing set. Report the RMSE values for four models. 
+
+Reference: ISLR Chapter6.6 Lab 2.
+```{r}
+
+
+```
+[Question]Please provide a short summary of your findings from the above analysis.
+
+Your Answer: 

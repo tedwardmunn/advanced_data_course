@@ -1,0 +1,107 @@
+---
+title: "Assignment1.1"
+author: "20001247"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+References:
+The Hourse data was downloaded from [kaggle] https://www.kaggle.com/c/house-prices-advanced-regression-techniques.
+
+How to write an R Markdown document: http://rmarkdown.rstudio.com
+
+R for Data Science: https://r4ds.had.co.nz/index.html
+---
+The goals of this assignment:
+1. Get familier with R studio. 
+2. Hands on R programming for data analysis.
+
+Total points: 100
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries (10 points)
+If you need to use any R package, add it to the below block. 
+Note that you must install the package before using it.
+```{r}
+#install.packages("stringi",type="mac.binary")
+#install.packages("Hmisc")
+# install.packages("tidyr")
+library(GGally)
+library(tidyr)
+library(Hmisc)
+```
+
+
+
+## Prepare dataset, complete the following five tasks (50 points)
+1. Load data from the given csv file. 
+2. Report the number of data points in the given csv file.
+3. Show the top 5 rows of the loaded dataset.
+4. Randomly split the dataset into training and testing, training takes 80%.
+5. Take the training data, summarize the data (call the describe function in Hmisc).
+
+```{r}
+#1. read and display the data
+mydata = read.csv("housePriceData.csv")
+mydata
+
+#2. Data statistics
+pointCount = nrow(mydata)
+pointCount
+attributeCount = ncol(mydata)
+attributeCount
+
+#3. Show top 5 data points
+head(mydata, 5)
+
+#4. Randomly split the dataset into 80/20
+smp_size <- floor(0.80 * nrow(mydata))
+
+set.seed(123)
+train_ind <- sample(seq_len(nrow(mydata)), size = smp_size)
+
+train <- mydata[train_ind, ]
+test <- mydata[-train_ind, ]
+# train
+# test
+
+#5. Summarize training data
+require(Hmisc)
+describe(train)
+
+```
+
+## Variable analysis (20 points)
+Given the training data, analyze the relationship between house price, number of bedrooms, number of bathrooms, and house size, using the ggpairs function in GGally package.
+
+Note that you need to first calculate the number of bathrooms for each training point. There are four columns related: 
+
+BsmtFullBath: Basement full bathrooms
+
+BsmtHalfBath: Basement half bathrooms
+
+FullBath: Full bathrooms above grade
+
+HalfBath: Half baths above grade.
+
+A half bathroom is calculated as 0.5 full bathroom. For instance, if a house has 3 full bathrooms above grade, 1 full bathroom in basement, 1 half bathroom above grade, this house has 4.5 bathrooms.
+
+```{r}
+sumBathrooms = train$BsmtFullBath + (0.5*train$BsmtHalfBath) + train$FullBath + (0.5*train$HalfBath)
+# sumBathrooms
+train <- cbind(train, sumBathrooms)
+# train
+ggpairs(train, columns = c(78,79,49,44))
+```
+
+## Report your findings (20 points)
+Report the most interesting 2 findings from your analysis.
+
+Finding 1:
+Looking at the scatter plot generated from the correlation of sumBathrooms and sales price it can be seen that, in general, as the number of bathrooms increases, the prices increases. The only other value that correlates more closely to sales price is the GrLivArea value. This can be seen in the plotting of the graphs above as well as in the correlation values of 0.617 and 0.696 respectively. 
+Finding 2:
+Another intersting observation is that the number of bedrooms is almost perfectly normally distributed. What is even more interesting is the relatively low correlation value (0.512) between GrLivArea and the number of beds. This indicates that the number of beds does not correlate very closely to the size of the house. 
